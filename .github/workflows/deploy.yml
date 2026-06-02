@@ -26,12 +26,15 @@ jobs:
         with:
           use-public-rspm: true
 
-      # Installe shinylive ET ses dépendances système (libarchive, libcurl…)
-      - name: Install shinylive (+ system dependencies)
+      # Installe shinylive + les paquets de l'app (shinylive::export lit leur
+      # arbre de dépendances sur le runner via find.package) + deps système.
+      - name: Install shinylive and app packages (+ system dependencies)
         uses: r-lib/actions/setup-r-dependencies@v2
         with:
           packages: |
             any::shinylive
+            any::shiny
+            any::shinydashboard
 
       - name: Export app to static shinylive site
         run: Rscript -e 'shinylive::export("app", "_site")'
