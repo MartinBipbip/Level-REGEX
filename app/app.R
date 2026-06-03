@@ -1,211 +1,167 @@
 # =============================================================================
-# LeVeL — Documentation des REGEX (application de démonstration, shinydashboard)
-# Étude LeVeL : Lévétiracétam, Lacosamide et sevrage ventilatoire en réa chir.
+# Étude LeVeL — Documentation des REGEX (application de démonstration)
 #
-# But : présenter, de façon pédagogique, les règles d'extraction par expressions
-# régulières (REGEX) appliquées aux textes cliniques Metavision / CRH du CHU de
-# Rennes — SANS aucune donnée patient (uniquement les patterns et leur logique).
+# Application illustrant, pour des cliniciens, la librairie d'expressions
+# régulières (REGEX) utilisée pour extraire des informations cliniques des
+# comptes rendus de l'étude LeVeL (Lévétiracétam vs Lacosamide et sevrage
+# ventilatoire en réanimation chirurgicale, CHU de Rennes).
 #
-# Les patterns sont aussi disponibles comme extraits .R autonomes dans le dossier
-# R/ du dépôt (regex_charlson.R, regex_tabac_alcool.R,
-# regex_extubation_reintubation.R, regex_epilepsie.R).
+# Aucune donnée patient. Les patterns sont aussi fournis comme extraits .R
+# autonomes dans le dossier R/ du dépôt.
 #
-# Déploiement : application Shiny statique, exportée en WebAssembly via
-# {shinylive} et hébergée sur GitHub Pages (aucun serveur R requis).
-#
-# Attribution EDS-NLP (https://aphp.github.io/edsnlp/) : best-effort, AU NIVEAU
-# DU CONCEPT (les 16 comorbidités de Charlson). La majorité des patterns LeVeL
-# préexistait et a été ALIGNÉE/COMPLÉTÉE avec EDS-NLP, non réécrite.
+# Déploiement : Shiny statique exporté en WebAssembly via {shinylive}, hébergé
+# sur GitHub Pages (aucun serveur R requis).
 # =============================================================================
 
 library(shiny)
 library(shinydashboard)
 
 # -----------------------------------------------------------------------------
-# Helpers d'affichage
+# Styles
 # -----------------------------------------------------------------------------
 css <- "
 .term { display:inline-block; background:#eafaf1; color:#196f3d; border-radius:6px;
         padding:1px 8px; margin:2px; font-size:0.9em; }
 .termx{ display:inline-block; background:#fdecea; color:#a93226; border-radius:6px;
         padding:1px 8px; margin:2px; font-size:0.9em; }
-.badge-eds  { display:inline-block; background:#d5f5e3; color:#1e8449;
-              border:1px solid #1e8449; border-radius:10px; padding:2px 10px;
-              font-size:0.85em; font-weight:bold; margin:4px 0; }
-.badge-home { display:inline-block; background:#eef2f7; color:#5d6d7e;
-              border:1px solid #b0bcc9; border-radius:10px; padding:2px 10px;
-              font-size:0.85em; font-weight:bold; margin:4px 0; }
+.hl   { background:#fff3a0; padding:0 4px; border-radius:3px; font-weight:700; }
 pre.regex { background:#1f2d3d; color:#e8f0fe; padding:12px; border-radius:8px;
             white-space:pre-wrap; word-break:break-word; font-size:0.82em; }
-.note { background:#fef9e7; border-left:4px solid #f1c40f; padding:8px 12px;
-        border-radius:4px; color:#5d4e0a; white-space:pre-wrap; }
-.lead { color:#34495e; font-size:1.02em; }
+.note { background:#fef9e7; border-left:4px solid #f1c40f; padding:10px 14px;
+        border-radius:4px; color:#5d4e0a; line-height:1.6; }
+.lead { color:#34495e; font-size:1.04em; line-height:1.6; }
+.block{ background:#fff; border:1px solid #e1e8ee; border-radius:8px; padding:12px 16px; }
 "
 
+# -----------------------------------------------------------------------------
+# Helpers
+# -----------------------------------------------------------------------------
 terms_ui <- function(x, cls = "term") {
   if (length(x) == 0) return(tags$em("—"))
   lapply(x, function(t) tags$span(class = cls, t))
-}
-eds_badge <- function(eds) {
-  if (is.null(eds) || is.na(eds) || !nzchar(eds))
-    tags$span(class = "badge-home",
-              "Hors périmètre Charlson d'EDS-NLP — pattern LeVeL (maison)")
-  else
-    tags$span(class = "badge-eds", paste0("Concept couvert par EDS-NLP — ", eds))
 }
 code_block <- function(txt) tags$pre(class = "regex", txt)
 
 concept_panel <- function(co) {
   tagList(
-    eds_badge(co$eds),
     tags$h4(tags$span(style = "color:#1e8449;", "Termes d'inclusion")),
     terms_ui(co$inclusion, "term"),
     tags$h4(tags$span(style = "color:#c0392b;", "Termes d'exclusion / négation")),
     terms_ui(co$exclusion, "termx"),
     if (!is.null(co$note) && nzchar(co$note)) div(class = "note", co$note),
     if (!is.null(co$regex) && nzchar(co$regex))
-      tagList(tags$h4("Bloc de code — pattern"), code_block(co$regex))
+      tagList(tags$h4("Pattern (extrait)"), code_block(co$regex))
   )
 }
 
 # -----------------------------------------------------------------------------
-# Données — catalogue (verbatim depuis l'app finale LeVeL)
+# Données — comorbidités de Charlson
 # -----------------------------------------------------------------------------
 charlson <- list(
-  idm_sca = list(label = "Infarctus du myocarde / SCA", eds = "eds.myocardial_infarction",
+  idm_sca = list(label = "Infarctus du myocarde / SCA",
     inclusion = c("infarctus du myocarde","IDM","syndrome coronarien aigu","SCA","NSTEMI","STEMI",
                   "angor instable","angioplastie coronaire","pontage aorto-coronarien","stent coronaire",
-                  "ATL (angioplastie transluminale)","pontage mammaire","endoprothèse coronarienne"),
+                  "endoprothèse coronarienne"),
     exclusion = character(0),
-    note = "Inclut les antécédents d'angioplastie et de pontage coronarien comme marqueurs indirects."),
-  insuf_card = list(label = "Insuffisance cardiaque", eds = "eds.congestive_heart_failure",
-    inclusion = c("insuffisance cardiaque","IC systolique","IC diastolique","FEVG","cardiopathie dilatée",
-                  "cardiopathie ischémique","défaillance cardiaque","dysfonction ventriculaire",
-                  "choc cardiogénique","greffe cardiaque","valve mécanique","RAO/RAC/RM","CMH",
-                  "cœur pulmonaire chronique","foie cardiaque"),
-    exclusion = c("aiguë","décompensation aiguë","OAP aigu isolé","pacemaker seul","valvulopathie minime/modérée"),
-    note = "Seule l'insuffisance cardiaque chronique est retenue ; les décompensations aiguës isolées sont exclues."),
-  vasc_periph = list(label = "Pathologie vasculaire périphérique", eds = "eds.peripheral_vascular_disease",
-    inclusion = c("AOMI","artérite","maladie vasculaire périphérique","anévrysme aortique","anévrisme",
-                  "pontage fémoral","pontage poplité","endoprothèse aortique","TVP","EP (embolie pulmonaire)",
-                  "MTEV","SHU/MAT/PTT","Budd-Chiari","Churg-Strauss","cryoglobulinémie","colite ischémique",
-                  "CAPS","embolie de cholestérol"),
-    exclusion = c("vasculite","vascularite","thrombose superficielle","cathéter intra-veineux"),
-    note = "Les vasculites sont exclues (confusion avec « Maladies de système »). TVP/EP/MTEV ajoutés."),
-  avc_ait = list(label = "AVC / AIT (maladie cérébrovasculaire)", eds = "eds.cerebrovascular_accident",
-    inclusion = c("AVC","AIT","accident vasculaire cérébral","accident ischémique transitoire",
-                  "infarctus cérébral","hémorragie cérébrale","lacune cérébrale","thrombophlébite cérébrale",
-                  "thrombose du sinus","Moyamoya","syndrome de Susac","maladie des petites artères cérébrales",
-                  "leucoaraïose","OVCR/OACR"),
+    note = "Les antécédents d'angioplastie et de pontage coronarien sont inclus comme marqueurs indirects de maladie coronarienne."),
+  insuf_card = list(label = "Insuffisance cardiaque",
+    inclusion = c("insuffisance cardiaque","IC systolique","IC diastolique","FEVG altérée","cardiopathie dilatée",
+                  "cardiopathie ischémique","défaillance cardiaque","dysfonction ventriculaire","choc cardiogénique",
+                  "cœur pulmonaire chronique"),
+    exclusion = c("aiguë","décompensation aiguë","OAP aigu isolé","pacemaker seul"),
+    note = "Seule l'insuffisance cardiaque chronique est retenue ; une décompensation aiguë isolée n'est pas comptée."),
+  vasc_periph = list(label = "Pathologie vasculaire périphérique",
+    inclusion = c("AOMI","artérite","maladie vasculaire périphérique","anévrysme aortique","pontage fémoral",
+                  "pontage poplité","endoprothèse aortique","thrombose veineuse profonde","embolie pulmonaire"),
+    exclusion = c("vasculite","vascularite","thrombose superficielle"),
+    note = "Les vasculites sont exclues pour éviter la confusion avec les maladies de système. La maladie thrombo-embolique veineuse chronique est incluse."),
+  avc_ait = list(label = "AVC / AIT (maladie cérébrovasculaire)",
+    inclusion = c("AVC","AIT","accident vasculaire cérébral","accident ischémique transitoire","infarctus cérébral",
+                  "hémorragie cérébrale","lacune cérébrale"),
     exclusion = c("traumatique","post-traumatique","iatrogénique","chute"),
-    note = "Les AVC traumatiques, iatrogéniques ou liés à une chute sont exclus."),
-  demence = list(label = "Démence", eds = "eds.dementia",
-    inclusion = c("démence","maladie d'Alzheimer","Alzheimer","DFT","démence vasculaire",
-                  "démence à corps de Lewy","démence fronto-temporale","trouble majeur neurocognitif",
-                  "détérioration cognitive sévère","troubles cognitifs chroniques","troubles mnésiques",
-                  "syndrome démentiel","TNC","syndrome frontal","atrophie corticale/hippocampique",
-                  "Binswanger","Creutzfeldt-Jakob","Huntington","Korsakoff"),
-    exclusion = c("syndrome confusionnel","confusion","delirium","Parkinson seul","MCI","pied de Charcot",
-                  "Charcot-Marie-Tooth","anti-Alzheimer (médicament)"),
-    note = "Les syndromes confusionnels aigus (delirium) sont exclus. « Démenti » (nié) exclu via lookahead."),
-  pulm_chron = list(label = "Pathologie pulmonaire chronique", eds = "eds.copd",
-    inclusion = c("BPCO","COPD","EABPCO","bronchopneumopathie chronique","emphysème","bronchectasies/DDB",
-                  "fibrose pulmonaire/FPI","asthme","PID","mucoviscidose","insuffisance respiratoire chronique",
-                  "syndrome obstructif chronique","ICS+LABA","triple thérapie inhalée","SAOS/SAS/SAHOS",
-                  "OLD (oxygénothérapie longue durée)","oxygénodépendance","BOOP","alvéolite fibrosante","FID"),
-    exclusion = c("PAVM","pneumopathie aiguë","pneumonie aiguë","infection pulmonaire","corps étranger bronchique"),
-    note = "Pneumopathies infectieuses aiguës et obstructions aiguës exclues. ICS+LABA ou triple thérapie ⇒ BPCO=1."),
-  maladie_syst = list(label = "Maladie de système (connectivite)", eds = "eds.connective_tissue_disease",
-    inclusion = c("lupus érythémateux","LEDS","polyarthrite rhumatoïde","sclérodermie","syndrome de Sjögren",
-                  "polymyosite","dermatomyosite","connectivite mixte","GPA/Wegener","polyangéite microscopique",
-                  "vascularite à ANCA","périartérite noueuse","artérite de Horton","Takayasu","Behçet",
-                  "spondylarthrite ankylosante","rhumatisme psoriasique","myasthénie","SAPL","Crohn","RCH","MICI",
-                  "PPR","Raynaud","maladie de Still/AJI","Felty","Gougerot-Sjögren"),
+    note = "Les accidents d'origine traumatique, iatrogénique ou consécutifs à une chute sont exclus."),
+  demence = list(label = "Démence",
+    inclusion = c("démence","maladie d'Alzheimer","Alzheimer","démence vasculaire","trouble majeur neurocognitif",
+                  "syndrome démentiel"),
+    exclusion = c("syndrome confusionnel","confusion","delirium","Parkinson isolé"),
+    note = "Les syndromes confusionnels aigus (delirium) sont exclus. Une maladie de Parkinson isolée, sans démence associée, n'est pas comptée."),
+  pulm_chron = list(label = "Pathologie pulmonaire chronique",
+    inclusion = c("BPCO","emphysème","bronchectasies","fibrose pulmonaire","asthme","pneumopathie interstitielle",
+                  "mucoviscidose","insuffisance respiratoire chronique","apnées du sommeil"),
+    exclusion = c("pneumopathie aiguë","pneumonie aiguë","infection pulmonaire"),
+    note = "Les pneumopathies infectieuses aiguës sont exclues. La présence d'un traitement inhalé de fond (corticoïde + bronchodilatateur de longue durée) suffit à retenir une BPCO."),
+  maladie_syst = list(label = "Maladie de système (connectivite)",
+    inclusion = c("lupus érythémateux","polyarthrite rhumatoïde","sclérodermie","syndrome de Sjögren",
+                  "dermatomyosite","granulomatose avec polyangéite","Behçet","maladie de Crohn","rectocolite hémorragique"),
     exclusion = character(0),
-    note = "« LES » (article) et « PAR » (préposition) non utilisés (trop génériques). LES retenu seulement si suivi de systémique/érythémateux/actif/quiescent."),
-  ulcere_peptique = list(label = "Ulcère peptique", eds = "eds.peptic_ulcer_disease",
-    inclusion = c("ulcère gastrique","ulcère duodénal","maladie ulcéreuse","gastrite ulcéreuse",
-                  "perforation gastrique","perforation duodénale","hémorragie ulcéreuse","ulcère peptique",
-                  "ulcère de Curling","antrite ulcérée"),
-    exclusion = c("ulcère cutané","ulcère veineux","ulcère artériel","ulcère de décubitus","ulcère du pied",
-                  "ulcère de jambe","escarre"),
-    note = "Les ulcères cutanés, veineux, artériels et de pression sont explicitement exclus."),
-  hepato_mod = list(label = "Hépatopathie modérée", eds = "eds.liver_disease",
-    inclusion = c("hépatite chronique B/C","NASH","NAFLD","stéatohépatite","stéatose hépatique",
-                  "fibrose hépatique (≤ F1)","hépatopathie chronique/alcoolique/virale","cirrhose Child A",
-                  "cirrhose sans mention de Child"),
-    exclusion = c("cirrhose Child B ou C","aiguë","fulminante","médicamenteuse","gravidique","toxique"),
-    note = "Cirrhose Child A ou sans mention → modérée ; Child B/C → basculé en sévère (post-traitement R)."),
-  hepato_sev = list(label = "Hépatopathie sévère", eds = "eds.liver_disease",
-    inclusion = c("hépatopathie sévère/grave/avancée","cirrhose Child B ou C","hypertension portale","HTP",
-                  "varices œsophagiennes/gastriques","encéphalopathie hépatique","ascite réfractaire/cirrhotique",
-                  "cirrhose biliaire primitive (CBP)","cholangite sclérosante primitive (CSP)",
-                  "insuffisance hépatique sévère/terminale","TIPS","SHR (syndrome hépato-rénal)","VO stade 1/2/3",
-                  "sclérose hépato-portale","nécrose hépatique"),
-    exclusion = c("cirrhose Child A (→ modérée)"),
-    note = "Seule la cirrhose avec mention explicite Child B/C dans la même phrase est sévère. CBP/CSP toujours sévères."),
-  diabete_sc = list(label = "Diabète sans complication", eds = "eds.diabetes",
-    inclusion = c("diabète type 1","diabète type 2","DID","DNID","diabète insulino-dépendant",
-                  "diabète non insulino-dépendant","T1DM","T2DM"),
-    exclusion = c("diabète insipide","diabète néphrogénique","diabète gestationnel","prédiabète","intolérance au glucose"),
-    note = "Les complications spécifiques (néphropathie, rétinopathie…) sont codées séparément."),
-  diabete_cc = list(label = "Diabète avec complication", eds = "eds.diabetes",
+    note = "Certaines abréviations trop génériques en français ne sont pas utilisées seules, pour éviter les faux positifs."),
+  ulcere_peptique = list(label = "Ulcère peptique",
+    inclusion = c("ulcère gastrique","ulcère duodénal","maladie ulcéreuse","ulcère peptique",
+                  "perforation gastrique","hémorragie ulcéreuse"),
+    exclusion = c("ulcère cutané","ulcère veineux","ulcère artériel","ulcère du pied","escarre"),
+    note = "Les ulcères cutanés, veineux, artériels et de pression (escarres) sont explicitement exclus."),
+  hepato_mod = list(label = "Hépatopathie modérée",
+    inclusion = c("hépatite chronique","stéatohépatite (NASH)","cirrhose Child A","hépatopathie chronique",
+                  "fibrose hépatique"),
+    exclusion = c("cirrhose Child B ou C","aiguë","fulminante"),
+    note = "Une cirrhose Child A (ou sans précision) est classée modérée ; une cirrhose Child B ou C est reclassée en hépatopathie sévère."),
+  hepato_sev = list(label = "Hépatopathie sévère",
+    inclusion = c("cirrhose Child B","cirrhose Child C","hypertension portale","varices œsophagiennes",
+                  "encéphalopathie hépatique","ascite réfractaire","cirrhose biliaire primitive",
+                  "cholangite sclérosante primitive"),
+    exclusion = c("cirrhose Child A"),
+    note = "Seule une cirrhose explicitement Child B ou C est classée sévère. Les cirrhoses et cholangites biliaires sont toujours considérées comme sévères."),
+  diabete_sc = list(label = "Diabète sans complication",
+    inclusion = c("diabète type 1","diabète type 2","diabète insulino-dépendant","diabète non insulino-dépendant"),
+    exclusion = c("diabète insipide","diabète gestationnel","prédiabète","intolérance au glucose"),
+    note = "Les complications spécifiques (néphropathie, rétinopathie…) sont comptées dans la catégorie suivante."),
+  diabete_cc = list(label = "Diabète avec complication",
     inclusion = c("néphropathie diabétique","rétinopathie diabétique","neuropathie diabétique","pied diabétique",
-                  "amputation diabétique","complication diabétique","macroangiopathie diabétique","microangiopathie diabétique"),
+                  "complication diabétique"),
     exclusion = character(0), note = NULL),
-  hemiplegie = list(label = "Hémiplégie / déficit neuro chronique", eds = "eds.hemiplegia",
-    inclusion = c("hémiplégie","hémiplégie droite","hémiplégie gauche","paraplégie","tétraplégie",
-                  "déficit moteur chronique","paralysie permanente","Charcot-Marie-Tooth (CMT)",
-                  "locked-in syndrome (LIS)","paralysie hémicorps/membre","paralysie cérébrale spastique"),
+  hemiplegie = list(label = "Hémiplégie / déficit neuro chronique",
+    inclusion = c("hémiplégie","paraplégie","tétraplégie","déficit moteur chronique","paralysie permanente",
+                  "locked-in syndrome"),
     exclusion = c("transitoire","déficit transitoire"),
-    note = "Les déficits transitoires (ex. paralysie post-ictus régressant en < 24 h) sont exclus."),
-  irc = list(label = "Insuffisance rénale chronique", eds = "eds.ckd",
-    inclusion = c("insuffisance rénale chronique","IRC","stade G3","stade G4","stade G5","IRCT","dialyse",
-                  "hémodialyse","dialyse péritonéale","insuffisance rénale terminale","glomérulonéphrite",
-                  "glomérulopathie","GNIgA","syndrome néphrotique","néphro-angiosclérose","maladie de Berger (IgA)",
-                  "syndrome d'Alport","Goodpasture","tubulopathie","EER/épuration extra-rénale","DPCA"),
-    exclusion = c("aiguë","IRA","fonctionnelle","obstructive","déshydratation"),
-    note = "Les IRA et causes réversibles (fonctionnelle, obstructive) sont exclues."),
-  tumeur_solide = list(label = "Tumeur solide (≥ 2015)", eds = "eds.solid_tumor",
-    inclusion = c("cancer","carcinome","adénocarcinome","néoplasie","tumeur maligne","ADK/adénoK",
-                  "CHC (carcinome hépatocellulaire)","GIST","carcinoïde","mésothéliome","linite plastique",
-                  "K prostate/K sein…","paragangliome","thymome","syndrome de Lynch","Li-Fraumeni"),
-    exclusion = c("carcinome in situ","cancérologie (titre de service)","antécédents familiaux de cancer",
-                  "myélodysplasies (→ leucémies)"),
-    note = "Filtrage temporel : seules les mentions associées à une année ≥ 2015 sont retenues. Année < 2015 → score = −1."),
-  leuco_lymphome = list(label = "Leucémie / Lymphome / Myélome", eds = "eds.leukemia / eds.lymphoma",
-    inclusion = c("leucémie","LLC","LMC","LLA","LMA","lymphome","lymphome de Hodgkin","lymphome non hodgkinien",
-                  "myélome","myélome multiple","MM","LNH","LH","myélofibrose","maladie de Vaquez",
-                  "thrombocytémie essentielle","syndrome de Sézary","lymphome de Burkitt","amylose AL",
-                  "histiocytose maligne","mycosis fongoïde","EATL/LAGC/LDGCB"),
+    note = "Les déficits transitoires, régressant en moins de 24 heures, sont exclus."),
+  irc = list(label = "Insuffisance rénale chronique",
+    inclusion = c("insuffisance rénale chronique","stade G3","stade G4","stade G5","dialyse","hémodialyse",
+                  "insuffisance rénale terminale","glomérulonéphrite","syndrome néphrotique"),
+    exclusion = c("aiguë","insuffisance rénale aiguë","fonctionnelle","obstructive"),
+    note = "Les insuffisances rénales aiguës et les causes réversibles (fonctionnelle, obstructive) sont exclues."),
+  tumeur_solide = list(label = "Tumeur solide",
+    inclusion = c("cancer","carcinome","adénocarcinome","néoplasie","tumeur maligne","mésothéliome"),
+    exclusion = c("carcinome in situ","antécédents familiaux de cancer"),
+    note = "Seules les mentions récentes sont retenues : un cancer ancien n'est pas compté comme une néoplasie active."),
+  leuco_lymphome = list(label = "Leucémie / Lymphome / Myélome",
+    inclusion = c("leucémie","lymphome","lymphome de Hodgkin","lymphome non hodgkinien","myélome","myélome multiple"),
     exclusion = character(0), note = NULL),
-  metastase = list(label = "Tumeur métastatique", eds = "eds.solid_tumor (drapeau métastase)",
-    inclusion = c("métastase","métastatique","carcinose péritonéale","extension métastatique","M1","dissémination tumorale"),
+  metastase = list(label = "Tumeur métastatique",
+    inclusion = c("métastase","métastatique","carcinose péritonéale","dissémination tumorale"),
     exclusion = character(0), note = NULL),
-  vih_sida = list(label = "VIH / SIDA", eds = "eds.aids",
-    inclusion = c("VIH","HIV","SIDA","AIDS","infection rétrovirale","traitement antirétroviral","ARV"),
+  vih_sida = list(label = "VIH / SIDA",
+    inclusion = c("VIH","SIDA","infection rétrovirale","traitement antirétroviral"),
     exclusion = character(0),
-    note = "EDS-NLP distingue SIDA (×6 Charlson) du VIH seul (non compté), en exigeant une infection opportuniste. LeVeL capture le VIH+ seul → plus sensible mais peut surestimer.")
+    note = "Le VIH est capté de façon sensible ; le SIDA, plus sévère, pèse davantage dans le score de Charlson.")
 )
 
+# Tabac & alcool ------------------------------------------------------------
 tabac_alcool <- list(
-  tabac = list(label = "Tabac (actif / sevré)", eds = NULL,
-    inclusion = c("tabagisme","fume / fumer / fument","tabac","cigarettes","paquets années","joint(s)","pétard(s)"),
+  tabac = list(label = "Tabac (actif / sevré)",
+    inclusion = c("tabagisme","fume / fumer / fument","tabac","cigarettes","paquets-années","joints"),
     exclusion = character(0),
-    note = paste0("Facteur comportemental (EDS-NLP a eds.tobacco, mais le scoring LeVeL est maison).\n",
-      "Contrainte de proximité : terme et qualifiant dans la MÊME phrase.\n",
-      "Scoring : +1 ACTIF (consommation, addiction, chronique, actif, /jour, quotidien) ; ",
-      "+0.5 SEVRÉ (sevré, ancien, stoppé, arrêté) ; 0 sinon."),
-    regex = "(?i)\\b(tabagisme|tabac|cigarettes?|fum(?:e|er|ent|eur)|paquets?[\\s\\-]?ann[eé]es?|joints?|p[eé]tards?)\\b\n# + qualifiant dans la meme phrase -> 1 (actif) / 0.5 (sevre)"),
-  alcool = list(label = "Alcool (actif / sevré)", eds = NULL,
-    inclusion = c("alcool","alcoolisme","éthylisme","éthylique","OH (consommation)","intoxication alcoolique"),
+    note = paste0("Le terme et son qualifiant doivent figurer dans la même phrase. La cotation est graduée : ",
+                  "1 si la consommation est actuelle (« actif », « consommation », « par jour »), ",
+                  "0,5 si elle est ancienne (« sevré », « stoppé », « arrêté »), 0 sinon."),
+    regex = "(?i)\\b(tabagisme|tabac|cigarettes?|fum(?:e|er|ent|eur)|paquets?[\\s\\-]?ann[eé]es?|joints?)\\b"),
+  alcool = list(label = "Alcool (actif / sevré)",
+    inclusion = c("alcool","alcoolisme","éthylisme","éthylique","intoxication alcoolique"),
     exclusion = character(0),
-    note = paste0("Même mécanisme que le tabac (fonction detect_substance, qualifiants actif/sevré ⇒ 0 / 0.5 / 1).\n",
-      "EDS-NLP possède eds.alcohol (comportements) ; le scoring LeVeL est maison."),
-    regex = "(?i)\\b(alcool|alcoolisme|[eé]thylisme|[eé]thylique|\\bOH\\b)\\b\n# + qualifiant actif/sevre dans la meme phrase -> 1 / 0.5")
+    note = "Même logique que le tabac : la consommation est cotée 0 (absente), 0,5 (ancienne / sevrée) ou 1 (actuelle), selon le qualifiant trouvé dans la même phrase.",
+    regex = "(?i)\\b(alcool|alcoolisme|[eé]thylisme|[eé]thylique|intoxication\\s+alcoolique)\\b")
 )
 
-# Épilepsie — patterns verbatim (REGEX exploration.Rmd)
+# Épilepsie — patterns (verbatim) -------------------------------------------
 p_epilepsie_inc <- paste0("(?i)(",
   "\\b[eé]pilepsie?s?\\b|\\b[eé]pileptiques?\\b|\\b[eé]pileptiformes?\\b",
   "|\\bcomitialit[eé]\\b|\\bcomitiaux?\\b|\\bcomitiale?s?\\b|\\bconvulsions?\\b|\\bclonies?\\b",
@@ -223,35 +179,45 @@ p_epi_neg <- paste0("(?i)(?:",
   "|\\b(?:fin|arr[eê]t|terme|lev[eé]e?|sortie?)\\s+d",
   "|\\b(?:r[eé]solution|disparition|c[eè]ssation|ma[iî]trise|contr[oô]le|normalisation|r[eé]gression|r[eé]mission)\\s+d",
   "|(?:a|ont|est|sont)\\s+(?:[eé]t[eé]\\s+)?(?:stopp[eé]|cess[eé]|disparu?e?s?|r[eé]solu[eé]?s?|ma[iî]tris[eé]|contr[oô]l[eé]|c[eé]d[eé]|amend[eé])",
-  "  …  /* extrait — le pattern complet couvre ~80 tournures */",
+  "|\\bant[eé]c[eé]dents?\\s+d|\\bATCD\\s+d",
   ")")
 
+# Ventilation — intubation / extubation / réintubation (notes rédigées) -----
 vent <- list(
-  intubation = list(label = "Intubation (1ère intubation)", eds = NULL,
-    inclusion = c("intubé(e)(s) / intubation","ventilation mécanique","séquence rapide","assistance respiratoire",
-                  "ventilation invasive","orotrachéale","ISR (séquence rapide)","IOT (oro-trachéale)"),
-    exclusion = c("ré-intubation (cf. Réintubation)","extubation (lookbehind négatif)"),
-    note = paste0("SOURCES (3 scans, priorité P1>P2>P3) : P1 obs entrée Histoire de la maladie ; ",
-      "P2 CRH section Histoire de la maladie ; P3 obs entrée Examen respiratoire.\n",
-      "Lookbehind (?<![A-Za-zÀ-ÿ\\-]) devant intub* pour exclure ré-intub* / ext-ub*.\n",
-      "Date/heure : la plus proche du terme (avant/après), sur tout le document. Fallback START_AT."),
-    regex = "(?<![A-Za-z\\u00C0-\\u00FF\\-])(?:intub|ventilation\\s+m[eé]canique|s[eé]quence\\s+rapide|ISR|IOT|orotrach[eé]ale|ventilation\\s+invasive)"),
-  extubation = list(label = "Extubation", eds = NULL,
-    inclusion = c("extubé(e)(s)","extubation","déventilé(e)(s)","fin de la VM","respiration spontanée",
-                  "VS-PEP/VSP (VSAI exclu)","sevré(e) de la ventilation","ablation de la sonde/SIT",
-                  "EVS (épreuve de ventilation spontanée)","EOT","ventilé jusqu'au"),
-    exclusion = c("VSAI / VS-AI (= sevrage en VM invasive, patient encore intubé)"),
-    note = paste0("SOURCES : CRH (table crh) + observations quotidiennes (table obs_quot_extubation, + heure).\n",
-      "DATE : fenêtre ±2 phrases, date la plus proche du mot-clé. HEURE (obs) : ±2 phrases, fallback ±400 car.\n",
-      "FALLBACK START_AT (obs). « hier/avant-hier » = start_at −1/−2 j. « J<N> » (obs) = start_at −N j."),
-    regex = "(?i)(extub[eé]|d[eé]\\-?ventil|fin\\s+d[eu]\\s+(?:la\\s+)?ventilation|respiration\\s+spontan[eé]e|sevr[eé]\\s+(?:de\\s+)?(?:la\\s+)?ventilation|EVS|EOT|VS\\-?PEP|VSP)"),
-  reintubation = list(label = "Réintubation", eds = NULL,
-    inclusion = c("réintubé(e)(s)","réintubation","re-intubé","reventilé(e)(s)","reprise de la VM",
-                  "intubé à nouveau","nouvelle intubation","2ème/deuxième/seconde intubation","après son extubation"),
-    exclusion = c("premières intubations (cf. Intubation)"),
-    note = paste0("SOURCES : identiques à l'extubation. Capte ré-intubation et équivalents, PAS les 1ères intubations.\n",
-      "DATE : ±2 phrases. HEURE (obs) : ±2 phrases, fallback ±400 car. « hier/avant-hier » activé. « J<N> » NON activé."),
-    regex = "(?i)(r[eé]\\-?intub|re\\-?ventil[eé]|reprise\\s+(?:de\\s+)?(?:la\\s+)?ventilation|nouvelle\\s+intubation|(?:2[eè]me|deuxi[eè]me|seconde)\\s+intubation|intub[eé]\\s+[aà]\\s+nouveau)")
+  intubation = list(label = "Intubation (1ère intubation)",
+    inclusion = c("intubation","intubé","ventilation mécanique","séquence rapide","assistance respiratoire",
+                  "ventilation invasive","intubation orotrachéale"),
+    exclusion = c("ré-intubation / re-intubation","extubation"),
+    note = paste0("La date de la première intubation est recherchée dans le récit d'admission (histoire de la ",
+      "maladie et examen respiratoire d'entrée) ainsi que dans le compte rendu d'hospitalisation. Le terme ",
+      "n'est retenu que s'il ne s'agit pas d'une ré-intubation : un filtre écarte les mentions de re-/ré-intubation ",
+      "et d'extubation. Lorsqu'une date et une heure figurent à proximité du terme, on retient celles qui en sont ",
+      "le plus proche dans le texte — qu'elles soient écrites en chiffres (« 14h30 ») ou en toutes lettres ",
+      "(« quatorze heures trente », « midi », « minuit »). Si aucune date n'est mentionnée dans le texte, on ",
+      "utilise la date du document comme repère."),
+    regex = "(?<![A-Za-z\\u00C0-\\u00FF\\-])(?:intub|ventilation\\s+m[eé]canique|s[eé]quence\\s+rapide|orotrach[eé]ale|ventilation\\s+invasive)"),
+  extubation = list(label = "Extubation",
+    inclusion = c("extubé","extubation","déventilé","fin de la ventilation mécanique","respiration spontanée",
+                  "sevrage de la ventilation","ablation de la sonde d'intubation","épreuve de ventilation spontanée"),
+    exclusion = c("modes de sevrage encore invasifs (patient toujours intubé)"),
+    note = paste0("La date d'extubation est recherchée à la fois dans le compte rendu d'hospitalisation et dans les ",
+      "observations quotidiennes. Autour de la mention d'extubation, on retient la date — et l'heure quand elle est ",
+      "disponible — la plus proche du mot-clé dans la phrase. Les expressions relatives au temps sont résolues ",
+      "automatiquement : « hier » et « avant-hier » sont convertis par rapport à la date de l'observation, et une ",
+      "formulation comme « J3 d'extubation » est ramenée au bon jour. Enfin, certains modes de sevrage au cours ",
+      "desquels le patient reste intubé sont volontairement écartés, pour ne pas confondre un sevrage en cours avec ",
+      "une extubation réelle."),
+    regex = "(?i)(extub[eé]|d[eé]\\-?ventil|fin\\s+d[eu]\\s+(?:la\\s+)?ventilation|respiration\\s+spontan[eé]e|sevr[eé]\\s+(?:de\\s+)?(?:la\\s+)?ventilation)"),
+  reintubation = list(label = "Réintubation",
+    inclusion = c("réintubation","ré-intubé","reprise de la ventilation","intubé à nouveau","nouvelle intubation",
+                  "2ème intubation"),
+    exclusion = c("première intubation"),
+    note = paste0("Une réintubation est repérée par des formulations telles que « ré-intubation », « reprise de la ",
+      "ventilation », « nouvelle intubation » ou « 2ᵉ intubation ». Ce repérage ne capte volontairement pas la ",
+      "première intubation. Comme pour l'extubation, on recherche la date la plus proche du terme dans le compte ",
+      "rendu d'hospitalisation ou les observations quotidiennes, et les expressions « hier » / « avant-hier » sont ",
+      "résolues automatiquement par rapport à la date de l'observation."),
+    regex = "(?i)(r[eé]\\-?intub|re\\-?ventil[eé]|reprise\\s+(?:de\\s+)?(?:la\\s+)?ventilation|nouvelle\\s+intubation|intub[eé]\\s+[aà]\\s+nouveau)")
 )
 
 # -----------------------------------------------------------------------------
@@ -263,15 +229,14 @@ ui <- dashboardPage(
   skin = "blue",
   dashboardHeader(title = "LeVeL — REGEX"),
   dashboardSidebar(
-    sidebarMenu(
-      id = "tab",
-      menuItem("Généralités",   tabName = "gen",     icon = icon("book")),
-      menuItem("Charlson",      tabName = "charlson", icon = icon("notes-medical")),
+    sidebarMenu(id = "tab",
+      menuItem("Généralités",    tabName = "gen",     icon = icon("book")),
+      menuItem("Charlson",       tabName = "charlson", icon = icon("notes-medical")),
       menuItem("Tabac / Alcool", tabName = "tabac",   icon = icon("wine-bottle")),
-      menuItem("Épilepsie",     tabName = "epi",      icon = icon("bolt")),
-      menuItem("Intubation",    tabName = "intub",    icon = icon("lungs")),
-      menuItem("Extubation",    tabName = "extub",    icon = icon("wind")),
-      menuItem("Réintubation",  tabName = "reintub",  icon = icon("rotate"))
+      menuItem("Épilepsie",      tabName = "epi",      icon = icon("bolt")),
+      menuItem("Intubation",     tabName = "intub",    icon = icon("lungs")),
+      menuItem("Extubation",     tabName = "extub",    icon = icon("wind")),
+      menuItem("Réintubation",   tabName = "reintub",  icon = icon("rotate"))
     )
   ),
   dashboardBody(
@@ -280,57 +245,69 @@ ui <- dashboardPage(
       tabItem("gen",
         box(width = 12, title = "Étude LeVeL — documentation des REGEX", status = "primary", solidHeader = TRUE,
             p(class = "lead",
-              "Extraction d'informations cliniques (comorbidités, épilepsie, ventilation) par expressions ",
-              "régulières sur les textes Metavision / CRH — étude LeVeL (Lévétiracétam vs Lacosamide, ",
-              "réanimation chirurgicale, CHU de Rennes). Démonstration — aucune donnée patient.")),
+              "Cette librairie ReGex a été utilisée pour extraire des informations cliniques ",
+              "(comorbidités, épilepsie, cut-off de ventilation) à partir des comptes rendus d'hospitalisation ",
+              "et d'observation quotidienne."),
+            p(class = "lead",
+              "Cette application ShinyLive montre son utilisation pour la réalisation de notre étude comparant les ",
+              "durées de ventilation mécanique sous Lévétiracétam ou Lacosamide en réanimation chirurgicale du CHU de Rennes."),
+            p("Le code source est disponible sur le dépôt GitHub : ",
+              tags$a(href = "https://github.com/MartinBipbip/Level-REGEX.git", target = "_blank",
+                     "github.com/MartinBipbip/Level-REGEX"))),
         tabBox(width = 12,
           tabPanel("Prétraitement",
             tags$ul(
-              tags$li(tags$b("Sources concaténées"), " : CRH, observations d'entrée, observations quotidiennes."),
-              tags$li(tags$b("Insensibilité à la casse"), " : tous les patterns commencent par ", tags$code("(?i)"), "."),
-              tags$li(tags$b("Robustesse aux accents"), " : lettres accentuées doublées (ex. ", tags$code("[eé]pilepsie"), ")."),
-              tags$li(tags$b("Découpage en phrases"), " sur ", tags$code(". ! ? \\n"), " — négation et proximité au niveau phrase."),
-              tags$li(tags$b("Fenêtres contextuelles"), " ±2 phrases pour dates/heures, repli ±400 caractères puis ", tags$code("START_AT"), "."))),
+              tags$li(tags$b("Sources de texte"), " : comptes rendus d'hospitalisation, observations d'entrée et observations quotidiennes."),
+              tags$li(tags$b("Mise en lisibilité du texte"),
+                " : les comptes rendus sont stockés au format HTML (mise en forme, polices, images encodées en base64). ",
+                "Avant toute recherche, ils sont convertis en texte brut lisible : on retire les balises de mise en forme ",
+                "(styles, scripts, feuilles de style), les images encodées en base64 et les autres parasites HTML/CSS, ",
+                "puis on normalise les espaces et les apostrophes mal encodées."),
+              tags$li(tags$b("Insensibilité à la casse"), " : majuscules et minuscules sont traitées indifféremment."),
+              tags$li(tags$b("Robustesse aux accents"), " : chaque terme est recherché avec et sans accent (« épilepsie » / « epilepsie »)."),
+              tags$li(tags$b("Découpage en phrases"), " : le texte est segmenté en phrases ; la négation et la proximité sont évaluées au sein d'une même phrase.")),
+            code_block("# Exemple — robustesse a la casse et aux accents\n(?i)\\b[eé]pilepsie?s?\\b   # capture : Epilepsie, épilepsies, EPILEPSIE…")),
           tabPanel("Incertitude",
             tags$ul(
-              tags$li(tags$b("Proximité"), " : terme + qualifiant dans la même phrase (ex. tabac actif/sevré)."),
-              tags$li(tags$b("Filtres temporels"), " : tumeur solide retenue si année ≥ 2015 (sinon −1)."),
-              tags$li(tags$b("Lookahead / lookbehind"), " : exclusions ciblées (crises non épileptiques ; « démenti »)."),
-              tags$li(tags$b("Scoring gradué"), " : tabac/alcool cotés 0 / 0,5 / 1."),
-              tags$li(tags$b("Hiérarchies post-traitement"), " (R) : cirrhose Child B/C → hépatopathie sévère."))),
+              tags$li(tags$b("Scoring gradué"),
+                " : une comorbidité peut être cotée 0 (absente) ; 0,5 (ancienne / douteuse) ; 1 (certaine / actuelle)."),
+              tags$li(tags$b("Proximité"),
+                " : recherche de la fraîcheur de l'information en priorisant le descriptif le plus proche. ",
+                "Exemple : « Tabagisme ", tags$span(class = "hl", "sevré"), ", a été actif pendant plus de 20 ans »."),
+              tags$li(tags$b("Lookahead / Lookbehind"),
+                " : recherche systématique du degré d'actualité des concepts retenus. ",
+                "Exemple : « Crise épileptique il y a 5 jours » → absence d'épilepsie."),
+              tags$li(tags$b("Filtres temporels"),
+                " : certaines comorbidités ne sont retenues que si elles sont suffisamment récentes ",
+                "(ex. un cancer ancien n'est pas compté comme actif)."))),
           tabPanel("Négation",
-            p(class = "lead", "Négation gérée AU NIVEAU DE LA PHRASE, séparément de la détection du terme :"),
+            p(class = "lead", "La négation est gérée au niveau de la phrase, séparément de la détection du terme :"),
             tags$ul(
-              tags$li("Étape 1 : détecter le terme (pattern d'inclusion)."),
-              tags$li("Étape 2 : si une négation/résolution est dans la même phrase → reclassé à 0."),
-              tags$li("Couvre négation directe (pas de, sans, aucun, jamais, ni), résolution (les crises ont cessé, contrôlée, a cédé) et antériorité (antécédent d'épilepsie).")),
-            p(tags$em("Analogie EDS-NLP : "), tags$code("eds.negation"), " / ", tags$code("eds.hypothesis"), " / ", tags$code("eds.history"), "."),
+              tags$li("Étape 1 : détecter le terme."),
+              tags$li("Étape 2 : si une négation ou une résolution figure dans la même phrase, la mention est reclassée comme absente."),
+              tags$li("Sont couvertes la négation directe (« pas de », « sans », « aucun », « jamais »), la résolution ",
+                      "(« les crises ont cessé », « épilepsie contrôlée », « a cédé ») et l'antériorité (« antécédent d'épilepsie »).")),
+            p("Les négations sont inspirées des sections ", tags$code("eds.negation"), " … ",
+              tags$code("eds.history"), " de la librairie EDS-NLP."),
             tags$h4("Exemple — négation épilepsie (extrait)"), code_block(p_epi_neg)),
           tabPanel("Validation",
-            p("Performance évaluée contre une ", tags$b("annotation manuelle de référence"), " (gold standard) dans une app dédiée :"),
+            p("La performance de chaque ReGex est évaluée contre une annotation manuelle de référence ",
+              "(gold standard) dans une application dédiée :"),
             tags$ul(
-              tags$li("Le clinicien annote la présence réelle (0/1, ou −1/0/0,5/1)."),
-              tags$li("Comparaison REGEX vs annotation en temps réel."),
-              tags$li("Métriques : ", tags$b("sensibilité, spécificité, VPP, VPN, % de concordance"), "."),
-              tags$li("Surlignage des termes détectés (", tags$code("highlight_spans"), ")."))),
-          tabPanel("Origine EDS-NLP",
-            div(class = "note",
-              paste0("ATTRIBUTION BEST-EFFORT, AU NIVEAU DU CONCEPT. Le code ne trace pas la provenance ligne ",
-                "par ligne. La majorité des patterns PRÉEXISTAIT dans LeVeL et a été ALIGNÉE / COMPLÉTÉE avec ",
-                "EDS-NLP (AP-HP), pas réécrite. Estimation à valider par l'investigateur.")),
-            tags$h4("Couvert par EDS-NLP (16 comorbidités de Charlson)"),
-            terms_ui(c("eds.myocardial_infarction","eds.congestive_heart_failure","eds.peripheral_vascular_disease",
-                       "eds.cerebrovascular_accident","eds.dementia","eds.copd","eds.connective_tissue_disease",
-                       "eds.peptic_ulcer_disease","eds.liver_disease","eds.diabetes","eds.hemiplegia","eds.ckd",
-                       "eds.solid_tumor","eds.leukemia","eds.lymphoma","eds.aids"), "term"),
-            tags$h4("Hors périmètre Charlson — patterns LeVeL (maison)"),
-            terms_ui(c("HTA (Elixhauser)","Tabac / Alcool","Épilepsie","Intubation","Extubation","Réintubation"), "termx"))
+              tags$li("Le clinicien annote manuellement une série aléatoire de comptes rendus et voit en direct les termes retenus par les ReGex."),
+              tags$li("Les performances sont évaluées à ", tags$span(style = "color:#bbb;", "…"), "."))),
+          tabPanel("Origine",
+            div(class = "block",
+              p("Cette librairie a été générée par des cliniciens du CHU de Rennes."),
+              p("Les patterns concernant le calcul du score de Charlson ont ensuite été enrichis par la librairie ",
+                "open access « EDS-NLP » de l'AP-HP : ",
+                tags$a(href = "https://aphp.github.io/edsnlp/latest/", target = "_blank", "aphp.github.io/edsnlp"), ".")))
         )
       ),
       tabItem("charlson",
         box(width = 12, title = "Comorbidités de l'index de Charlson", status = "primary", solidHeader = TRUE,
             selectInput("charlson_pick", "Comorbidité :", choices = charlson_choices, width = "60%"),
-            p(tags$small("Badge vert = concept couvert par EDS-NLP ; badge gris = pattern LeVeL hors périmètre Charlson."))),
+            p(tags$small("Sélectionnez une comorbidité pour afficher les termes d'inclusion / d'exclusion et la logique appliquée."))),
         box(width = 12, uiOutput("charlson_detail"))
       ),
       tabItem("tabac",
@@ -338,11 +315,10 @@ ui <- dashboardPage(
         box(width = 12, title = "Alcool", status = "primary", solidHeader = TRUE, concept_panel(tabac_alcool$alcool))
       ),
       tabItem("epi",
-        box(width = 12, title = "Crises d'épilepsie (REGEX)", status = "primary", solidHeader = TRUE,
-            eds_badge(NULL),
-            p("Détection en 2 temps : (1) inclusion des termes épileptiques ; (2) négation niveau phrase ⇒ 0 ",
-              "si négation/résolution dans la même phrase."),
-            p(tags$em("Résolution : JOUR (observations quotidiennes "), tags$code("obsQuotConcat"), tags$em(")."))),
+        box(width = 12, title = "Crises d'épilepsie", status = "primary", solidHeader = TRUE,
+            p("Détection en deux temps : (1) repérage des termes évoquant une crise épileptique ; ",
+              "(2) si une négation ou une résolution figure dans la même phrase, la mention est écartée."),
+            p(tags$em("Les crises sont recherchées dans les observations quotidiennes (résolution à la journée)."))),
         box(width = 12, title = "Pattern d'inclusion", status = "success", solidHeader = TRUE, code_block(p_epilepsie_inc)),
         box(width = 12, title = "Pattern de négation (extrait)", status = "danger", solidHeader = TRUE, code_block(p_epi_neg))
       ),
@@ -353,9 +329,6 @@ ui <- dashboardPage(
   )
 )
 
-# -----------------------------------------------------------------------------
-# Server
-# -----------------------------------------------------------------------------
 server <- function(input, output, session) {
   output$charlson_detail <- renderUI({
     req(input$charlson_pick)
