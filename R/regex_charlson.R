@@ -5,7 +5,8 @@
 # Principe : le pattern de chaque comorbidité est assemblé à partir d'une liste
 # de termes d'inclusion -> (?i)\b(terme1|terme2|...)\b, complété par des termes
 # d'exclusion (lookahead / post-filtre) et des hiérarchies appliquées en R
-# (ex. cirrhose Child B/C -> hépatopathie sévère ; tumeur année >= 2015).
+# (ex. cirrhose Child B/C -> hépatopathie sévère ; cancer dont toutes les
+#  mentions datées sont < 2005 -> ancien/guéri, non compté).
 #
 # Attribution EDS-NLP (best-effort, niveau concept) : champ `eds` = composant
 # EDS-NLP correspondant (https://aphp.github.io/edsnlp/). NULL = pattern maison.
@@ -95,7 +96,8 @@ regex_charlson <- list(
   tumeur_solide = list(eds = "eds.solid_tumor",
     inclusion = c("cancer", "carcinome", "adénocarcinome", "néoplasie", "tumeur maligne",
                   "CHC", "GIST", "mésothéliome"),
-    # filtre temporel : mention associée à une année >= 2015 (sinon score = -1)
+    # filtre temporel : cancer dont toutes les mentions datées sont < 2005
+    #                   (ancien / guéri) -> non compté (0)
     exclusion = c("carcinome in situ", "antécédents familiaux de cancer")),
 
   leuco_lymphome = list(eds = "eds.leukemia / eds.lymphoma",

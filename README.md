@@ -9,13 +9,13 @@ Application **Shiny (shinydashboard)** démonstrative présentant les règles d'
 ```
 app/app.R                              # application shinydashboard (déployée)
 R/regex_charlson.R                     # extraits .R — comorbidités de Charlson
-R/regex_tabac_alcool.R                 # extraits .R — tabac & alcool (scoring 0/0.5/1)
+R/regex_tabac_alcool.R                 # extraits .R — tabac & alcool (scoring binaire 0/1)
 R/regex_extubation_reintubation.R      # extraits .R — intubation / extubation / réintubation
 R/regex_epilepsie.R                    # extraits .R — crises d'épilepsie (inclusion + négation)
 .github/workflows/deploy.yml           # CI : export shinylive + déploiement Pages
 ```
 
-L'**application** (menu latéral) : Généralités (prétraitement, incertitude, négation, validation par annotation, **origine EDS-NLP**), Charlson (un sélecteur par comorbidité), Tabac/Alcool, Épilepsie, Intubation, Extubation, Réintubation. Chaque concept affiche termes d'inclusion/exclusion, note et **bloc de code** (pattern).
+L'**application** (menu latéral) : Généralités (prétraitement, cotation, négation, validation par annotation, **origine EDS-NLP**), Charlson (un sélecteur par comorbidité), Tabac/Alcool, Épilepsie, Intubation, Extubation, Réintubation. Chaque concept affiche termes d'inclusion/exclusion, note et **bloc de code** (pattern).
 
 Les **extraits `.R`** (dossier `R/`) contiennent les patterns réels, réutilisables hors application.
 
